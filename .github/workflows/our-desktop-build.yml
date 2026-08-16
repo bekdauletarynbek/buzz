@@ -44,6 +44,14 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
+      # Tauri упаковывает шесть внешних бинарей (externalBin в tauri.conf.json).
+      # Без этого шага сборка падает на «resource path binaries/buzz-acp-… doesn't exist».
+      - name: Build sidecars
+        run: |
+          cargo build --release -p buzz-acp -p buzz-agent -p buzz-backend-kubernetes \
+            -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+          ./scripts/bundle-sidecars.sh
+
       - name: Build
         run: cd desktop && pnpm tauri build --no-sign
 
