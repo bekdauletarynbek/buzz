@@ -19,9 +19,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # Версию не задаём: она уже пришпилена в package.json (packageManager),
+      # и явное указание здесь ломает установку конфликтом версий.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
