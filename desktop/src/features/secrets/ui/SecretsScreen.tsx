@@ -9,6 +9,7 @@ import {
   fetchAudit,
   getSecretsToken,
   getSecretsUrl,
+  approveMcp,
   listMcp,
   listSecrets,
   removeMcp,
@@ -387,6 +388,52 @@ function McpSection({
           Добавить
         </button>
       </form>
+
+      {entries.some((entry) => entry.state === "proposed") ? (
+        <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+          <p className="mb-2 text-sm font-medium">Предложено агентами</p>
+          {entries
+            .filter((entry) => entry.state === "proposed")
+            .map((entry) => (
+              <div
+                className="flex flex-wrap items-center gap-2 py-1 text-sm"
+                key={`p:${entry.persona}:${entry.name}`}
+              >
+                <span className="font-medium">{entry.name}</span>
+                <span className="text-muted-foreground">{entry.persona}</span>
+                <code className="break-all text-xs">{entry.target}</code>
+                {entry.note ? (
+                  <span className="text-xs text-muted-foreground">
+                    {entry.note}
+                  </span>
+                ) : null}
+                <button
+                  className="ml-auto rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground"
+                  onClick={() =>
+                    act(() => approveMcp(entry.persona, entry.name))
+                  }
+                  type="button"
+                >
+                  принять
+                </button>
+                <button
+                  className="rounded-md border border-border px-3 py-1 text-xs"
+                  onClick={() =>
+                    act(() => removeMcp(entry.persona, entry.name))
+                  }
+                  type="button"
+                >
+                  отклонить
+                </button>
+              </div>
+            ))}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Пока не принято — инструмент выключен и никем не подхватывается.
+            Проверяйте, куда ведёт адрес: это код, который выполнится у всех
+            копий агента.
+          </p>
+        </div>
+      ) : null}
 
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">пока пусто</p>

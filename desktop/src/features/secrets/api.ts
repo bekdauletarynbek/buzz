@@ -126,6 +126,8 @@ export type McpEntry = {
   target: string;
   note: string | null;
   enabled: boolean;
+  /** `proposed` — предложено агентом и ещё не одобрено человеком. */
+  state: "proposed" | "approved";
   created_by: string;
   updated_at: string;
 };
@@ -159,4 +161,12 @@ export async function toggleMcp(
 
 export async function removeMcp(persona: string, name: string): Promise<void> {
   await request("/api/mcp/remove", { method: "POST", body: { persona, name } });
+}
+
+/** Одобрить предложенное агентом. Агенту эта операция недоступна. */
+export async function approveMcp(persona: string, name: string): Promise<void> {
+  await request("/api/mcp/approve", {
+    method: "POST",
+    body: { persona, name },
+  });
 }
