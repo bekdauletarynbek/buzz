@@ -116,3 +116,47 @@ export async function fetchAudit(limit = 100): Promise<AuditEntry[]> {
   );
   return body.entries;
 }
+
+// ─── реестр MCP ────────────────────────────────────────────────────────
+
+export type McpEntry = {
+  persona: string;
+  name: string;
+  transport: "url" | "command";
+  target: string;
+  note: string | null;
+  enabled: boolean;
+  created_by: string;
+  updated_at: string;
+};
+
+export async function listMcp(persona?: string): Promise<McpEntry[]> {
+  const query = persona ? `?persona=${encodeURIComponent(persona)}` : "";
+  const body = await request<{ servers: McpEntry[] }>(`/api/mcp${query}`);
+  return body.servers;
+}
+
+export async function addMcp(entry: {
+  persona: string;
+  name: string;
+  transport: "url" | "command";
+  target: string;
+  note?: string;
+}): Promise<void> {
+  await request("/api/mcp", { method: "POST", body: entry });
+}
+
+export async function toggleMcp(
+  persona: string,
+  name: string,
+  enabled: boolean,
+): Promise<void> {
+  await request("/api/mcp/enabled", {
+    method: "POST",
+    body: { persona, name, enabled },
+  });
+}
+
+export async function removeMcp(persona: string, name: string): Promise<void> {
+  await request("/api/mcp/remove", { method: "POST", body: { persona, name } });
+}

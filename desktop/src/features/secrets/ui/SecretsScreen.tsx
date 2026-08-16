@@ -2,15 +2,20 @@ import * as React from "react";
 
 import {
   type AuditEntry,
+  type McpEntry,
   type SecretEntry,
   type SecretsRole,
+  addMcp,
   fetchAudit,
   getSecretsToken,
   getSecretsUrl,
+  listMcp,
   listSecrets,
+  removeMcp,
   revealSecret,
   setSecretsToken,
   setSecretsUrl,
+  toggleMcp,
 } from "@/features/secrets/api";
 import { cn } from "@/shared/lib/cn";
 
@@ -25,7 +30,8 @@ import { cn } from "@/shared/lib/cn";
 export function SecretsScreen() {
   const [token, setToken] = React.useState(() => getSecretsToken());
   const [url, setUrl] = React.useState(() => getSecretsUrl());
-  const [tab, setTab] = React.useState<"secrets" | "audit">("secrets");
+  const [tab, setTab] = React.useState<"secrets" | "mcp" | "audit">("secrets");
+  const [mcp, setMcp] = React.useState<McpEntry[]>([]);
   const [secrets, setSecrets] = React.useState<SecretEntry[]>([]);
   const [audit, setAudit] = React.useState<AuditEntry[]>([]);
   const [role, setRole] = React.useState<SecretsRole | null>(null);
@@ -43,6 +49,8 @@ export function SecretsScreen() {
     try {
       if (tab === "audit") {
         setAudit(await fetchAudit());
+      } else if (tab === "mcp") {
+        setMcp(await listMcp());
       } else {
         const data = await listSecrets();
         setSecrets(data.secrets);
@@ -115,7 +123,7 @@ export function SecretsScreen() {
       </section>
 
       <nav className="mb-3 flex gap-2">
-        {(["secrets", "audit"] as const).map((value) => (
+        {(["secrets", "mcp", "audit"] as const).map((value) => (
           <button
             className={cn(
               "rounded-md border border-border px-3 py-1.5 text-sm",
@@ -127,7 +135,11 @@ export function SecretsScreen() {
             onClick={() => setTab(value)}
             type="button"
           >
-            {value === "secrets" ? "Секреты" : "Журнал"}
+            {value === "secrets"
+              ? "Секреты"
+              : value === "mcp"
+                ? "MCP-серверы"
+                : "Журнал"}
           </button>
         ))}
       </nav>
@@ -146,6 +158,8 @@ export function SecretsScreen() {
           revealed={revealed}
           secrets={secrets}
         />
+      ) : tab === "mcp" ? (
+        <McpSection entries={mcp} onChanged={load} onError={setError} />
       ) : (
         <AuditTable entries={audit} />
       )}
@@ -270,5 +284,176 @@ function AuditTable({ entries }: { entries: AuditEntry[] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * Реестр MCP-серверов агента.
+ *
+ * Список хранится на сервере и привязан к персоне, а не к запущенному
+ * экземпляру: копии агента у разных людей получают его одинаковым, и
+ * добавление инструмента команде не требует правок на чужих машинах.
+ */
+function McpSection({
+  entries,
+  onChanged,
+  onError,
+}: {
+  entries: McpEntry[];
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
+  const [persona, setPersona] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [transport, setTransport] = React.useState<"url" | "command">("url");
+  const [target, setTarget] = React.useState("");
+
+  const submit = React.useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      try {
+        await addMcp({
+          persona: persona.trim(),
+          name: name.trim(),
+          transport,
+          target: target.trim(),
+        });
+        setName("");
+        setTarget("");
+        onChanged();
+      } catch (cause) {
+        onError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [name, onChanged, onError, persona, target, transport],
+  );
+
+  const act = React.useCallback(
+    async (action: () => Promise<void>) => {
+      try {
+        await action();
+        onChanged();
+      } catch (cause) {
+        onError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [onChanged, onError],
+  );
+
+  const field =
+    "min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm";
+
+  return (
+    <div>
+      <form
+        className="mb-3 flex flex-wrap items-center gap-2"
+        onSubmit={submit}
+      >
+        <input
+          className={field}
+          onChange={(event) => setPersona(event.target.value)}
+          placeholder="персона (devops)"
+          required
+          value={persona}
+        />
+        <input
+          className={field}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="имя (langfuse)"
+          required
+          value={name}
+        />
+        <select
+          className={field}
+          onChange={(event) =>
+            setTransport(event.target.value === "command" ? "command" : "url")
+          }
+          value={transport}
+        >
+          <option value="url">по ссылке (https)</option>
+          <option value="command">командой (npx …)</option>
+        </select>
+        <input
+          className={field}
+          onChange={(event) => setTarget(event.target.value)}
+          placeholder="https://… или npx -y пакет"
+          required
+          value={target}
+        />
+        <button
+          className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+          type="submit"
+        >
+          Добавить
+        </button>
+      </form>
+
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground">пока пусто</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="border-b border-border py-2 pr-3">Персона</th>
+              <th className="border-b border-border py-2 pr-3">Имя</th>
+              <th className="border-b border-border py-2 pr-3">Как</th>
+              <th className="border-b border-border py-2 pr-3">Куда</th>
+              <th className="border-b border-border py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={`${entry.persona}:${entry.name}`}>
+                <td className="border-b border-border py-2 pr-3">
+                  {entry.persona}
+                </td>
+                <td className="border-b border-border py-2 pr-3">
+                  {entry.name}
+                  {entry.enabled ? null : (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      выключен
+                    </span>
+                  )}
+                </td>
+                <td className="border-b border-border py-2 pr-3 text-muted-foreground">
+                  {entry.transport}
+                </td>
+                <td className="break-all border-b border-border py-2 pr-3">
+                  {entry.target}
+                </td>
+                <td className="whitespace-nowrap border-b border-border py-2">
+                  <button
+                    className="mr-2 rounded-md border border-border px-2 py-1 text-xs"
+                    onClick={() =>
+                      act(() =>
+                        toggleMcp(entry.persona, entry.name, !entry.enabled),
+                      )
+                    }
+                    type="button"
+                  >
+                    {entry.enabled ? "выключить" : "включить"}
+                  </button>
+                  <button
+                    className="rounded-md border border-border px-2 py-1 text-xs"
+                    onClick={() =>
+                      act(() => removeMcp(entry.persona, entry.name))
+                    }
+                    type="button"
+                  >
+                    удалить
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <p className="mt-4 text-xs text-muted-foreground">
+        Список живёт на сервере: правка здесь видна всем копиям этого агента.
+        Чтобы инструменты подхватил рантайм, их ещё нужно применить к его
+        конфигу — это следующий шаг.
+      </p>
+    </div>
   );
 }
