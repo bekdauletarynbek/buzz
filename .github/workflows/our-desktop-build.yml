@@ -1,0 +1,62 @@
+name: Our desktop build (macOS)
+
+# Сборка нашего варианта десктопа. Отдельно от апстримного release.yml:
+# тот тянет секреты подписи и нотаризации Block, которых у нас нет.
+# Здесь сборка без подписи — приложение для внутреннего пользования.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build .app (unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # rust-toolchain.toml пинит версию, rustup её и подтянет.
+      - name: Rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: cd desktop && pnpm tauri build --no-sign
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          find desktop/src-tauri/target -name "*.dmg" -exec cp {} out/ \; || true
+          find desktop/src-tauri/target -name "*.app" -maxdepth 4 -print0 \
+            | xargs -0 -I{} sh -c 'cd "$(dirname "{}")" && zip -qry "$OLDPWD/out/$(basename "{}").zip" "$(basename "{}")"' || true
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buzz-desktop-macos
+          path: out/*
+          retention-days: 14
