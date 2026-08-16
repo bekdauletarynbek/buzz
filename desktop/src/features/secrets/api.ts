@@ -6,7 +6,10 @@
  * Здесь только тонкий доступ — вся политика ролей на сервере.
  */
 
+import { signRelayEvent } from "@/shared/api/tauri";
+
 const TOKEN_KEY = "buzz.secrets.token";
+const NIP98_KIND = 27235;
 const URL_KEY = "buzz.secrets.url";
 
 const DEFAULT_URL = "https://secrets.ai-marketing.cloud";
@@ -61,21 +64,59 @@ export function setSecretsUrl(url: string): void {
 
 export class SecretsError extends Error {}
 
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Заголовок входа по вашему ключу Buzz (NIP-98).
+ *
+ * Отдельные доступы раздавать не нужно: сервис узнаёт вас по той же
+ * личности, что и мессенджер. Подпись привязана к методу, адресу и телу,
+ * поэтому её нельзя переиграть против другого запроса.
+ */
+async function keyHeader(
+  method: string,
+  url: string,
+  body: string,
+): Promise<string> {
+  const tags: string[][] = [
+    ["u", url],
+    ["method", method.toUpperCase()],
+    ["nonce", crypto.randomUUID()],
+  ];
+  if (body) {
+    tags.push(["payload", await sha256Hex(body)]);
+  }
+  const event = await signRelayEvent({ kind: NIP98_KIND, content: "", tags });
+  return `Nostr ${btoa(JSON.stringify(event))}`;
+}
+
 async function request<T>(
   path: string,
   init?: { method?: string; body?: unknown },
 ): Promise<T> {
+  const method = init?.method ?? "GET";
+  const url = `${getSecretsUrl()}${path}`;
+  const body = init?.body === undefined ? "" : JSON.stringify(init.body);
   const token = getSecretsToken();
-  if (!token) {
-    throw new SecretsError("не задан токен доступа");
-  }
-  const response = await fetch(`${getSecretsUrl()}${path}`, {
-    method: init?.method ?? "GET",
+  // Токен остаётся запасным входом: если он задан руками, верим ему.
+  const authorization = token
+    ? `Bearer ${token}`
+    : await keyHeader(method, url, body);
+  const response = await fetch(url, {
+    method,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: authorization,
       "Content-Type": "application/json",
     },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    body: body || undefined,
   });
   if (!response.ok) {
     // Сервер отвечает {detail: "..."} — показываем причину, а не код.

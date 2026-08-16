@@ -41,10 +41,6 @@ export function SecretsScreen() {
   const [loading, setLoading] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    if (!getSecretsToken()) {
-      setError("введите токен доступа");
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
@@ -65,9 +61,8 @@ export function SecretsScreen() {
   }, [tab]);
 
   React.useEffect(() => {
-    if (getSecretsToken()) {
-      void load();
-    }
+    // Токен больше не обязателен: по умолчанию подписываемся ключом.
+    void load();
   }, [load]);
 
   const saveAccess = React.useCallback(() => {
@@ -94,8 +89,8 @@ export function SecretsScreen() {
       <header className="mb-4">
         <h1 className="text-xl font-semibold">Креды</h1>
         <p className="text-sm text-muted-foreground">
-          Значения хранятся зашифрованными вне релея. Каждый показ пишется в
-          журнал.
+          Вход вашим ключом Buzz — отдельный доступ не нужен. Значения хранятся
+          зашифрованными вне релея, каждый показ пишется в журнал.
         </p>
       </header>
 
@@ -110,7 +105,7 @@ export function SecretsScreen() {
           autoComplete="off"
           className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
           onChange={(event) => setToken(event.target.value)}
-          placeholder="токен (bsk_…)"
+          placeholder="токен — только если вход ключом не работает"
           type="password"
           value={token}
         />
