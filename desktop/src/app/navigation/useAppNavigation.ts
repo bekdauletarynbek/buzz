@@ -70,6 +70,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goSecrets = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/secrets",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goPulse = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -336,6 +347,7 @@ export function useAppNavigation() {
     goProject,
     goProjects,
     goPulse,
+    goSecrets,
     goProfile,
     goSettings,
     goWorkflow,
