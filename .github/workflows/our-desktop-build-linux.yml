@@ -1,0 +1,83 @@
+name: Our desktop build (Linux)
+
+# Линуксовый близнец our-desktop-build.yml. Собирается БЕЗ
+# BUZZ_BUILD_AGENT_ACCESS_OWNER_ONLY, поэтому доступ к агентам остаётся
+# настраиваемым и в подсказке @ видно чужих агентов (desktop/src-tauri/
+# build.rs:25 → managed_agents/access_policy.rs).
+#
+# runs-on = ubuntu-22.04 намеренно: бинарь линкуется с glibc раннера, и
+# сборка на 22.04 запускается и на 22.04, и на более новых. Обратное неверно.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build .deb + AppImage (unsigned)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Список пакетов — тот же, что в апстримном linux-canary.yml.
+      - name: Install system dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=3 -o DPkg::Lock::Timeout=120 \
+            build-essential ca-certificates curl desktop-file-utils file git \
+            libasound2-dev libayatana-appindicator3-dev libgtk-3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            patchelf pkg-config squashfs-tools wget xdg-utils
+
+      # Версию не задаём: она пришпилена в package.json (packageManager).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # Tauri упаковывает шесть внешних бинарей (externalBin в tauri.conf.json).
+      - name: Build sidecars
+        run: |
+          cargo build --release -p buzz-acp -p buzz-agent -p buzz-backend-kubernetes \
+            -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+          ./scripts/bundle-sidecars.sh
+
+      - name: Build
+        run: cd desktop && pnpm tauri build --bundles deb,appimage
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          find desktop/src-tauri/target -name "*.deb" -exec cp {} out/ \; || true
+          find desktop/src-tauri/target -name "*.AppImage" -exec cp {} out/ \; || true
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buzz-desktop-linux
+          path: out/*
+          retention-days: 14
