@@ -1,0 +1,107 @@
+name: Our desktop build (Windows)
+
+# Windows-вариант нашей сборки. Отличается от our-desktop-build.yml только
+# раннером и упаковщиком: на Windows Tauri делает NSIS-инсталлятор (.exe),
+# а не .app/.dmg. Подписи нет — приложение для внутреннего пользования,
+# поэтому SmartScreen при первом запуске покажет предупреждение.
+#
+# Апстримный windows-canary.yml здесь не годится: он прибит к репозиторию
+# block/buzz и требует ветку main.
+#
+# Как и macOS/Linux-близнецы, собирается БЕЗ
+# BUZZ_BUILD_AGENT_ACCESS_OWNER_ONLY — доступ к агентам остаётся
+# настраиваемым, в подсказке @ видно чужих агентов.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build NSIS installer (unsigned)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # rust-toolchain.toml пинит версию; на windows-latest хост уже msvc,
+      # поэтому add target обычно no-op, но пусть будет явно.
+      - name: Rust
+        shell: bash
+        run: |
+          rustup show
+          rustup target add "$TARGET"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install deps
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      # На Windows externalBin короче на buzz-backend-kubernetes: его снимает
+      # tauri.windows.conf.json, а bundle-sidecars.sh сам не кладёт этот бинарь
+      # для *windows* таргета.
+      - name: Build sidecars
+        shell: bash
+        run: |
+          cargo build --release --target "$TARGET" \
+            -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+          ./scripts/bundle-sidecars.sh "$TARGET"
+
+      # Артефакты автообновления требуют приватный ключ подписи, которого у нас
+      # нет; выключаем явно, чтобы сборка не упала на его отсутствии.
+      - name: Generate non-updating bundle config
+        shell: bash
+        run: |
+          cat > desktop/src-tauri/tauri.ours.conf.json <<'JSON'
+          {
+            "bundle": {
+              "createUpdaterArtifacts": false
+            }
+          }
+          JSON
+
+      - name: Build
+        shell: bash
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          cd desktop && pnpm tauri build --target "$TARGET" --bundles nsis \
+            --config src-tauri/tauri.ours.conf.json
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          BUNDLE_DIR="desktop/src-tauri/target/${TARGET}/release/bundle"
+          find "$BUNDLE_DIR/nsis" -name '*.exe' -type f -exec cp {} out/ \;
+          ls -lh out
+          [ -n "$(ls -A out)" ] || { echo "::error::NSIS installer not found"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buzz-desktop-windows
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
